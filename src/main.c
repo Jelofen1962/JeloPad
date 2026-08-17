@@ -11,7 +11,7 @@
 attr_public const char *g_pluginName = "jelopad";
 attr_public const char *g_pluginDesc = "Control your PS4 using Any Controllers with network or just usb";
 attr_public const char *g_pluginAuth = "xfangfang";
-attr_public uint32_t g_pluginVersion = 0x00000120; // 1.2.0
+attr_public uint32_t g_pluginVersion = 0x00000121; // 1.2.1
 
 #define PLUGIN_DEFAULT_SECTION "default"
 

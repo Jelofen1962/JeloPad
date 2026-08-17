@@ -186,8 +186,8 @@ static int32_t padOpen(int32_t userId, int32_t type, int32_t index, void *param)
     }
 
     rps.pads[index].userId = userId;
-    // Default to USB for now, later make dynamic
-    rps.pads[index].driver = &usbDriver; 
+    // Set active driver to wsDriver for network and web clients
+    rps.pads[index].driver = &wsDriver;
     handle = rps.pads[index].handle;
     final_printf("[JeloPad] Controller assigned: %s\n", rps.pads[index].driver->name);
 

@@ -33,7 +33,7 @@ except ImportError:
     try:
         import tomli as tomllib
     except ImportError:
-        pass
+        tomllib = None
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -166,6 +166,9 @@ class ConfigManager:
         if not os.path.exists(self.CONFIG_FILE):
             self.save()
             return
+        if tomllib is None:
+            logging.error("Failed to load config: no TOML library available (install 'tomli' on Python < 3.11)")
+            return
         try:
             with open(self.CONFIG_FILE, "rb") as f:
                 data = tomllib.load(f)
@@ -200,8 +203,10 @@ pad3 = "{self.assignments[3]}"
         for k, v in self.joy_mapping.items():
             toml_content += f'"{k}" = "{v}"\n'
         try:
-            with open(self.CONFIG_FILE, "w") as f:
+            tmp_file = f"{self.CONFIG_FILE}.tmp"
+            with open(tmp_file, "w") as f:
                 f.write(toml_content)
+            os.replace(tmp_file, self.CONFIG_FILE)
         except Exception as e:
             logging.error(f"Failed to save config: {e}")
 
@@ -217,6 +222,7 @@ class InputManager:
 
         # Store custom physical HID connection descriptors
         self.hid_devices: Dict[int, Any] = {}
+        self.hid_paths: Dict[int, Any] = {}
         self.target_vids = [0x0810, 0x0e8f, 0x120a, 0x1a2c]
 
         self.kb1_axes = [128.0, 128.0, 128.0, 128.0]
@@ -239,10 +245,11 @@ class InputManager:
             except Exception:
                 pass
         self.hid_devices.clear()
+        self.hid_paths.clear()
 
     def update_hid_connections(self):
-        self.close_all_hid_devices()
         if not HID_AVAILABLE:
+            self.close_all_hid_devices()
             return
 
         try:
@@ -250,6 +257,8 @@ class InputManager:
         except Exception:
             return
 
+        # Figure out which raw HID path (if any) each pad should be connected to.
+        desired_paths: Dict[int, Any] = {}
         for pad_idx, dev_id in self.config.assignments.items():
             if dev_id.startswith("Joy "):
                 try:
@@ -263,15 +272,35 @@ class InputManager:
                         if vid in self.target_vids or "Gamepad" in joy.get_name():
                             for d in raw_hid_list:
                                 if d['vendor_id'] == vid and d['product_id'] == pid:
-                                    try:
-                                        dev = hid.device()
-                                        dev.open_path(d['path'])
-                                        dev.set_nonblocking(True)
-                                        self.hid_devices[pad_idx] = dev
-                                        break
-                                    except Exception:
-                                        pass
+                                    desired_paths[pad_idx] = d['path']
+                                    break
                 except (ValueError, AttributeError):
+                    pass
+
+        # Only close handles that are no longer needed, or now point at a
+        # different physical device - leave already-correct connections alone
+        # so we don't needlessly kick rumble motors or churn raw HID handles.
+        for pad_idx in list(self.hid_devices.keys()):
+            if self.hid_paths.get(pad_idx) != desired_paths.get(pad_idx):
+                dev = self.hid_devices.pop(pad_idx)
+                self.hid_paths.pop(pad_idx, None)
+                try:
+                    dev.write(bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+                    dev.write(bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+                    dev.close()
+                except Exception:
+                    pass
+
+        # Open any newly-needed connections.
+        for pad_idx, path in desired_paths.items():
+            if pad_idx not in self.hid_devices:
+                try:
+                    dev = hid.device()
+                    dev.open_path(path)
+                    dev.set_nonblocking(True)
+                    self.hid_devices[pad_idx] = dev
+                    self.hid_paths[pad_idx] = path
+                except Exception:
                     pass
 
     def detect_devices(self) -> List[str]:
@@ -295,6 +324,13 @@ class InputManager:
                     if dev == f"Joy {jid}":
                         self.config.assignments[pad] = "None"
 
+        # Guard against stale assignments (e.g. loaded from a previous session,
+        # or referencing a device id that no longer/never existed this run)
+        # so downstream UI never receives a value it doesn't recognize.
+        for pad, dev in list(self.config.assignments.items()):
+            if dev not in self.device_names:
+                self.config.assignments[pad] = "None"
+
         self.update_hid_connections()
         return list(self.device_names.keys())
 
@@ -303,7 +339,11 @@ class InputManager:
         for event in pygame.event.get():
             if event.type == pygame.JOYDEVICEADDED:
                 self.detect_devices()
-                logs.append(f"Controller connected: {pygame.joystick.Joystick(event.device_index).get_name()}")
+                try:
+                    name = pygame.joystick.Joystick(event.device_index).get_name()
+                    logs.append(f"Controller connected: {name}")
+                except Exception:
+                    logs.append("Controller connected")
             elif event.type == pygame.JOYDEVICEREMOVED:
                 logs.append(f"Controller disconnected (ID: {event.instance_id})")
                 self.detect_devices()
@@ -471,8 +511,11 @@ class SetupMenuModal(ModalScreen):
         self.ws_conn = ws_conn
 
     def compose(self) -> ComposeResult:
-        if not self.ps4_users:
-            self.ps4_users = [{"index": i, "enabled": True, "userId": 0x20000000 + i, "userName": f"Remote{i}"} for i in range(4)]
+        # Guard against the console returning fewer than 4 user profiles
+        # (or none at all) — always pad up to 4 so indexed access below is safe.
+        while len(self.ps4_users) < 4:
+            i = len(self.ps4_users)
+            self.ps4_users.append({"index": i, "enabled": True, "userId": 0x20000000 + i, "userName": f"Remote{i}"})
 
         yield Grid(
             Label("⚙️ JeloPad System Preferences", id="setup-title"),
@@ -621,7 +664,7 @@ class ButtonMapperModal(ModalScreen):
 
     def on_mount(self) -> None:
         if not self.joy:
-            self.set_timer(2.0, self.dismiss)
+            self.set_timer(2.0, self._dismiss_no_controller)
             return
 
         self.initial_axes = [self.joy.get_axis(i) for i in range(self.joy.get_numaxes())]
@@ -635,6 +678,11 @@ class ButtonMapperModal(ModalScreen):
         _, name = self.buttons_to_map[self.current_target_idx]
         self.query_one("#mapper-prompt", Label).update(f"Action: [bold green]{name}[/bold green]")
         self.start_time = time.perf_counter()
+
+    def _dismiss_no_controller(self) -> None:
+        """Timer callback for the 'no controller found' auto-close.
+        Must not return dismiss()'s awaitable (see finish_mapping note)."""
+        self.dismiss()
 
     def get_active_input(self) -> Optional[str]:
         for i in range(self.joy.get_numbuttons()):
@@ -681,7 +729,15 @@ class ButtonMapperModal(ModalScreen):
         self.query_one("#mapper-timer", Label).update("Saving Configuration...")
         self.config.joy_mapping = self.new_mapping
         self.config.save()
-        self.set_timer(1.0, lambda: self.dismiss(True))
+        # NOTE: the timer callback must not return dismiss()'s awaitable object.
+        # Textual's timer machinery auto-awaits whatever the callback returns,
+        # and awaiting dismiss() from within this screen's own context raises
+        # ScreenError ("Can't await screen.dismiss() from the screen's message
+        # handler"). Using a plain helper method with no return value avoids this.
+        self.set_timer(1.0, self._finish_dismiss)
+
+    def _finish_dismiss(self) -> None:
+        self.dismiss(True)
 
     def action_cancel(self):
         if hasattr(self, "tick_timer"): self.tick_timer.stop()
@@ -853,29 +909,38 @@ class JeloPadApp(App):
 
     async def core_tick_loop(self) -> None:
         while True:
-            target_interval = 1.0 / self.config.tick_rate
-            start_t = time.perf_counter()
-            for msg in self.input_mgr.process_pygame_events():
-                self.log_msg(msg)
-                self.update_tables()
+            try:
+                target_interval = 1.0 / self.config.tick_rate
+                start_t = time.perf_counter()
+                for msg in self.input_mgr.process_pygame_events():
+                    self.log_msg(msg)
+                    self.update_tables()
 
-            for i in range(4):
-                self.pad_states[i] = self.input_mgr.get_pad_state(i)
-
-            if self.connected and self.ws:
                 for i in range(4):
-                    if self.pad_states[i].is_different(self.prev_states[i]):
-                        try:
-                            pkt = self.pad_states[i].to_packet()
-                            await self.ws.send(pkt)
-                            self.packets_sent += 1
-                            self.prev_states[i].copy_from(self.pad_states[i])
-                        except Exception:
-                            self.packets_dropped += 1
+                    self.pad_states[i] = self.input_mgr.get_pad_state(i)
 
-            elapsed = time.perf_counter() - start_t
-            sleep_time = target_interval - elapsed
-            await asyncio.sleep(max(0, sleep_time))
+                if self.connected and self.ws:
+                    for i in range(4):
+                        if self.pad_states[i].is_different(self.prev_states[i]):
+                            try:
+                                pkt = self.pad_states[i].to_packet()
+                                await self.ws.send(pkt)
+                                self.packets_sent += 1
+                                self.prev_states[i].copy_from(self.pad_states[i])
+                            except Exception:
+                                self.packets_dropped += 1
+
+                elapsed = time.perf_counter() - start_t
+                sleep_time = target_interval - elapsed
+                await asyncio.sleep(max(0, sleep_time))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                # Never let an unexpected error silently kill the whole input/output
+                # loop — log it, back off briefly, and keep the app responsive.
+                logging.error(f"core_tick_loop error: {e}")
+                self.log_msg(f"[bold red]Internal tick-loop error (recovered):[/bold red] {e}")
+                await asyncio.sleep(0.5)
 
     async def ws_receive_loop(self) -> None:
         if not self.ws: return

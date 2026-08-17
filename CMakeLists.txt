@@ -16,9 +16,8 @@ add_subdirectory(lib)
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/static.c
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMAND gzip -k -c client/index.html > client/index.html.gz
     COMMAND cc -o ${CMAKE_BINARY_DIR}/pack lib/mongoose/test/pack.c
-    COMMAND ${CMAKE_BINARY_DIR}/pack client/index.html.gz > ${CMAKE_BINARY_DIR}/static.c
+    COMMAND ${CMAKE_BINARY_DIR}/pack client/index.html > ${CMAKE_BINARY_DIR}/static.c
     DEPENDS client/index.html
 )
 
