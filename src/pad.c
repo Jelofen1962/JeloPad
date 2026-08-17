@@ -166,7 +166,6 @@ static int32_t padGetHandle(int32_t userId, uint32_t controller_type, uint32_t c
         return handle;
     return ORBIS_PAD_ERROR_DEVICE_NO_HANDLE;
 }
-
 static int32_t padOpen(int32_t userId, int32_t type, int32_t index, void *param) {
     int32_t handle = 0;
     (void) type;
@@ -186,8 +185,8 @@ static int32_t padOpen(int32_t userId, int32_t type, int32_t index, void *param)
     }
 
     rps.pads[index].userId = userId;
-    // Set active driver to wsDriver for network and web clients
-    rps.pads[index].driver = &wsDriver;
+    // Set active driver to wsDriver
+    rps.pads[index].driver = &wsDriver; 
     handle = rps.pads[index].handle;
     final_printf("[JeloPad] Controller assigned: %s\n", rps.pads[index].driver->name);
 

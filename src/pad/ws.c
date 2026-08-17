@@ -266,8 +266,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
             mg_ws_upgrade(c, hm, NULL);
             return;
         }
-        // Serve static files
-        struct mg_http_serve_opts opts = {.root_dir = "/client", .fs = &mg_fs_packed};
+        // Serve static files from virtual root
+        struct mg_http_serve_opts opts = {.root_dir = "/", .fs = &mg_fs_packed};
         mg_http_serve_dir(c, ev_data, &opts);
     } else if (ev == MG_EV_WS_MSG) {
         // Got websocket frame. Received data is wm->data
@@ -308,6 +308,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         }
     }
 }
+
 
 static void rpc_config_get(struct mg_rpc_req *r) {
     if (!g_remoteUserService) {
