@@ -143,13 +143,6 @@ jobs:
       # Create AppImage
       # ----------------------------------------------------------
 
-      - name: Download linuxdeploy
-        run: |
-          wget -O linuxdeploy.AppImage \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-
-          chmod +x linuxdeploy.AppImage
-
       - name: Download appimagetool
         run: |
           wget -O appimagetool.AppImage \
@@ -157,24 +150,44 @@ jobs:
 
           chmod +x appimagetool.AppImage
 
-      - name: Create AppDir
+      - name: Create AppImage structure
         run: |
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
 
+          # Copy executable
           cp dist/JeloPad-Linux-x64 AppDir/usr/bin/JeloPad
+          chmod +x AppDir/usr/bin/JeloPad
 
+          # Create JeloPad icon
+          cat > AppDir/usr/share/icons/hicolor/scalable/apps/jelopad.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+            <rect width="256" height="256" rx="48" fill="#111111"/>
+            <rect x="42" y="72" width="172" height="112" rx="40"
+                  fill="none" stroke="#ffffff" stroke-width="14"/>
+            <circle cx="174" cy="112" r="10" fill="#ffffff"/>
+            <circle cx="199" cy="132" r="10" fill="#ffffff"/>
+            <path d="M78 128h48M102 104v48"
+                  stroke="#ffffff"
+                  stroke-width="12"
+                  stroke-linecap="round"/>
+          </svg>
+          EOF
+
+          # Create desktop entry
           cat > AppDir/usr/share/applications/jelopad.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
           Name=JeloPad
           Comment=JeloPad PS4 controller bridge
           Exec=JeloPad
+          Icon=jelopad
           Terminal=true
           Categories=Utility;
           EOF
 
+          # AppImage entry point
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
@@ -185,12 +198,8 @@ jobs:
 
       - name: Build AppImage
         env:
-          APPIMAGE_EXTRACT_AND_RUN: "1"
+          ARCH: x86_64
         run: |
-          ./linuxdeploy.AppImage \
-            --appdir AppDir \
-            --desktop-file AppDir/usr/share/applications/jelopad.desktop
-
           ./appimagetool.AppImage \
             AppDir \
             JeloPad-Linux-x64.AppImage
@@ -200,10 +209,6 @@ jobs:
           chmod +x JeloPad-Linux-x64.AppImage
           file JeloPad-Linux-x64.AppImage
           ls -lh JeloPad-Linux-x64.AppImage
-
-      # ----------------------------------------------------------
-      # Upload both Linux formats
-      # ----------------------------------------------------------
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
