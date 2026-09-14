@@ -1,10 +1,4 @@
-Yes. I checked the current repository as well as the CLI implementation, so I can make the README more accurate than the current one. In particular, the repository currently uses `cli.py`, `requirements.txt` contains `pygame` and `websockets`, the CLI also imports Textual/Rich, and the CMake build requires `OO_PS4_TOOLCHAIN`. ([GitHub][1])
 
-Below is a **complete replacement `README.md`**, with **English first and Persian second**, written as user-facing documentation rather than a development-only README.
-
-One important correction is also included: the plugin filename/path should be consistent. If the release file is `jelopad.prx`, `plugins.ini` should point to `jelopad.prx`, not `remote_pad.prx`.
-
-````markdown
 # JeloPad
 
 > A modern virtual controller bridge for jailbroken PlayStation 4 consoles running GoldHEN.
