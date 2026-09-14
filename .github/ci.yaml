@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-prx:
+    runs-on: ubuntu-latest
+    container: xfangfang/goldhen_plugin:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build
+        run: |
+          git config --global --add safe.directory `pwd`
+          
+          # Fail-safe: Clone dependencies if the submodules are unpopulated
+          if [ ! -f "lib/mongoose/mongoose.c" ]; then
+            echo "Mongoose source missing, performing fail-safe clone..."
+            rm -rf lib/mongoose
+            git clone --depth 1 https://github.com/cesanta/mongoose.git lib/mongoose
+          fi
+
+          if [ ! -f "lib/GoldHEN_Plugins_SDK/include/Common.h" ]; then
+            echo "GoldHEN Plugins SDK source missing, performing fail-safe clone..."
+            rm -rf lib/GoldHEN_Plugins_SDK
+            git clone --depth 1 https://github.com/xfangfang/GoldHEN_Plugins_SDK.git lib/GoldHEN_Plugins_SDK
+          fi
+
+          # Clean the build directory (do not delete the crt source directory)
+          rm -rf lib/GoldHEN_Plugins_SDK/build
+
+          # --- Apply SDK Makefile Patches ---
+          # 1. Force GNU Make to run the 'crt' target even though the 'crt' folder exists
+          echo -e "\n.PHONY: crt" >> lib/GoldHEN_Plugins_SDK/Makefile
+
+          # 2. Replace 'mkdir' with 'mkdir -p' to prevent "File exists" build failures
+          find lib/GoldHEN_Plugins_SDK -name Makefile -exec sed -i 's/\bmkdir\b/mkdir -p/g' {} +
+
+          # Configure CMake bypassing compiler checks
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/ps4.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_WORKS=1 \
+            -DCMAKE_CXX_COMPILER_WORKS=1
+
+          # Build target
+          cmake --build build
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: jelopad.prx
+          path: build/jelopad.prx
