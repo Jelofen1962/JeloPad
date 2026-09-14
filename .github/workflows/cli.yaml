@@ -149,26 +149,45 @@ jobs:
           ls -lh "dist/JeloPad-Linux-x64"
 
       # ----------------------------------------------------------
-      # Create AppImage directory
+      # Create AppImage
       # ----------------------------------------------------------
+
+      - name: Download appimagetool
+        run: |
+          wget -O appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+
+          chmod +x appimagetool
 
       - name: Create AppImage structure
         run: |
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
 
-          # Copy executable
+          # Copy PyInstaller executable
           cp dist/JeloPad-Linux-x64 AppDir/usr/bin/JeloPad
           chmod +x AppDir/usr/bin/JeloPad
 
           # ------------------------------------------------------
-          # Create JeloPad icon
+          # AppImage icon
+          #
+          # IMPORTANT:
+          # appimagetool expects Icon=jelopad to resolve to
+          # AppDir/jelopad.png, .svg, or .xpm
           # ------------------------------------------------------
 
-          cat > AppDir/usr/share/icons/hicolor/scalable/apps/jelopad.svg <<'EOF'
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-            <rect width="256" height="256" rx="48" fill="#111111"/>
+          cat > AppDir/jelopad.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg"
+               width="256"
+               height="256"
+               viewBox="0 0 256 256">
+
+            <rect
+              width="256"
+              height="256"
+              rx="48"
+              fill="#111111"/>
+
             <rect
               x="42"
               y="72"
@@ -177,31 +196,36 @@ jobs:
               rx="40"
               fill="none"
               stroke="#ffffff"
-              stroke-width="14"
-            />
-            <circle cx="174" cy="112" r="10" fill="#ffffff"/>
-            <circle cx="199" cy="132" r="10" fill="#ffffff"/>
+              stroke-width="14"/>
+
+            <circle
+              cx="174"
+              cy="112"
+              r="10"
+              fill="#ffffff"/>
+
+            <circle
+              cx="199"
+              cy="132"
+              r="10"
+              fill="#ffffff"/>
+
             <path
               d="M78 128h48M102 104v48"
               stroke="#ffffff"
               stroke-width="12"
-              stroke-linecap="round"
-            />
+              stroke-linecap="round"/>
           </svg>
           EOF
 
           # ------------------------------------------------------
-          # Create desktop file
-          #
-          # IMPORTANT:
-          # appimagetool requires this at AppDir root.
+          # Desktop entry
           # ------------------------------------------------------
 
           cat > AppDir/jelopad.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
           Name=JeloPad
-          GenericName=JeloPad
           Comment=JeloPad PS4 controller bridge
           Exec=JeloPad
           Icon=jelopad
@@ -209,61 +233,34 @@ jobs:
           Categories=Utility;
           EOF
 
-          # Also place it in the standard applications directory
-          cp \
-            AppDir/jelopad.desktop \
-            AppDir/usr/share/applications/jelopad.desktop
+          # Also install desktop file in standard location
+          cp AppDir/jelopad.desktop \
+             AppDir/usr/share/applications/jelopad.desktop
 
           # ------------------------------------------------------
-          # Create AppRun
+          # AppRun
           # ------------------------------------------------------
 
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
-
           HERE="$(dirname "$(readlink -f "$0")")"
-
           exec "$HERE/usr/bin/JeloPad" "$@"
           EOF
 
           chmod +x AppDir/AppRun
 
-      # ----------------------------------------------------------
-      # Verify AppDir before packaging
-      # ----------------------------------------------------------
-
       - name: Verify AppDir
         run: |
           echo "=== AppDir ==="
-          find AppDir -type f -o -type l | sort
+          find AppDir -maxdepth 4 -type f -print
 
-          echo
+          echo ""
           echo "=== Desktop file ==="
           cat AppDir/jelopad.desktop
 
-          echo
-          echo "=== AppRun ==="
-          cat AppDir/AppRun
-
-          echo
-          echo "=== Executable ==="
-          file AppDir/usr/bin/JeloPad
-
-      # ----------------------------------------------------------
-      # Download AppImage tool
-      # ----------------------------------------------------------
-
-      - name: Download appimagetool
-        run: |
-          wget -q \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
-            -O appimagetool
-
-          chmod +x appimagetool
-
-      # ----------------------------------------------------------
-      # Build AppImage
-      # ----------------------------------------------------------
+          echo ""
+          echo "=== Icon ==="
+          ls -lh AppDir/jelopad.svg
 
       - name: Build AppImage
         env:
@@ -273,35 +270,19 @@ jobs:
             AppDir \
             JeloPad-Linux-x64.AppImage
 
-      # ----------------------------------------------------------
-      # Verify AppImage
-      # ----------------------------------------------------------
-
       - name: Verify AppImage
         run: |
-          test -f "JeloPad-Linux-x64.AppImage"
+          chmod +x JeloPad-Linux-x64.AppImage
 
-          chmod +x "JeloPad-Linux-x64.AppImage"
+          file JeloPad-Linux-x64.AppImage
 
-          echo "=== AppImage ==="
-          file "JeloPad-Linux-x64.AppImage"
-
-          echo
-          ls -lh "JeloPad-Linux-x64.AppImage"
-
-      # ----------------------------------------------------------
-      # Upload standalone Linux binary
-      # ----------------------------------------------------------
+          ls -lh JeloPad-Linux-x64.AppImage
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
         with:
           name: JeloPad-Linux-x64-bin
           path: dist/JeloPad-Linux-x64
-
-      # ----------------------------------------------------------
-      # Upload Linux AppImage
-      # ----------------------------------------------------------
 
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
